@@ -1,28 +1,51 @@
 # pocock-agents
 
-A pair of [OpenCode](https://opencode.ai/) agents that turn [Matt Pocock](https://www.mattpocock.com/)'s skill-driven development workflow into something you can run end-to-end: grill an idea into a PRD, break it into GitHub issues, and dispatch parallel workers that each execute one issue on an isolated git worktree using TDD.
+A pair of [OpenCode](https://opencode.ai/) agents that turn [Matt Pocock](https://www.mattpocock.com/)'s skill-driven development workflow into something you can run end-to-end: grill an idea (and harden the domain glossary as you go), synthesize a PRD, break it into issues, and dispatch parallel workers that each execute one issue on an isolated git worktree using TDD.
 
 Blog post with the full rationale and walkthrough: **[How I cloned Matt Pocock into OpenCode Agents](https://mdias.info/posts/cloning-matt-pocock-opencode/)**.
+
+> **2026-05 update.** Matt landed a major refactor of [`mattpocock/skills`](https://github.com/mattpocock/skills) between 2026-04-28 and 2026-05-07 — renamed several skills, deprecated others, introduced `CONTEXT.md` + `docs/adr/` as the domain-doc convention, and added `diagnose`, `prototype`, `grill-with-docs`, `triage`, `to-prd`, `to-issues`, `setup-matt-pocock-skills`, `zoom-out`, `handoff`, and `caveman`. These agents have been re-aligned with that refactor. See [What's new](#whats-new) below.
 
 ## The agents
 
 | File | Role |
 | --- | --- |
-| [`agents/pocock.md`](./agents/pocock.md) | **Orchestrator.** Loads Matt's skills on-demand through a phased workflow (`grill-me` → `write-a-prd` → `prd-to-issues` → dispatch), manages git worktrees, and coordinates parallel workers. |
-| [`agents/pocock-worker.md`](./agents/pocock-worker.md) | **Subagent.** Takes a single GitHub issue and a pre-created worktree, loads the `tdd` skill, follows red-green-refactor, pushes a branch, and opens a PR. |
+| [`agents/pocock.md`](./agents/pocock.md) | **Orchestrator.** Loads Matt's skills on-demand through a phased workflow (`grill-with-docs` → `prototype` → `to-prd` → `to-issues` → dispatch), manages git worktrees, and coordinates parallel workers. |
+| [`agents/pocock-worker.md`](./agents/pocock-worker.md) | **Subagent.** Takes a single issue and a pre-created worktree, loads `tdd` (and `diagnose` when bugs fight back), follows red-green-refactor, pushes a branch, and opens a PR/MR. |
 
 ## Prerequisites
 
-These agents **depend on** [Matt Pocock's skills](https://github.com/mattpocock/skills). They reference skills like `grill-me`, `write-a-prd`, `prd-to-issues`, `tdd`, `qa`, `triage-issue`, `design-an-interface`, `improve-codebase-architecture`, and several Cloudflare-specific ones (`cloudflare`, `workers-best-practices`, `durable-objects`, `agents-sdk`, `playwright-skill`, etc.).
+These agents **depend on** [Matt Pocock's skills](https://github.com/mattpocock/skills). They reference, among others:
+
+- **Engineering**: `grill-with-docs`, `to-prd`, `to-issues`, `triage`, `tdd`, `diagnose`, `prototype`, `zoom-out`, `improve-codebase-architecture`, `setup-matt-pocock-skills`
+- **Productivity**: `grill-me`, `write-a-skill`, `caveman`
+- **In-progress**: `handoff`
+- **Cloudflare-flavored** (loaded contextually when a project's signals match): `cloudflare`, `workers-best-practices`, `wrangler`, `durable-objects`, `agents-sdk`, `sandbox-sdk`, `cloudflare-email-service`, `playwright-skill`
 
 Install Matt's skills first — they're the actual engineering discipline; these agents just orchestrate them.
 
+The simplest path is the [`skills.sh`](https://skills.sh/mattpocock/skills) installer (recommended by Matt):
+
 ```bash
-# Clone Matt's skills into OpenCode's skill directory
-git clone https://github.com/mattpocock/skills ~/.config/opencode/skills
+npx skills@latest add mattpocock/skills
 ```
 
-(Or copy only the skills you want from [`mattpocock/skills`](https://github.com/mattpocock/skills) — see his repo for the full list.)
+Or do it manually by copying each skill into a flat `~/.config/opencode/skills/<skill-name>/` layout:
+
+```bash
+# Clone to a temp location
+git clone --depth 1 https://github.com/mattpocock/skills /tmp/mp-skills
+
+# Copy the skills you want into ~/.config/opencode/skills/ (flat structure expected by OpenCode)
+mkdir -p ~/.config/opencode/skills
+for cat in engineering productivity in-progress misc personal; do
+  for skill in /tmp/mp-skills/skills/$cat/*/; do
+    cp -R "$skill" ~/.config/opencode/skills/
+  done
+done
+```
+
+Note: Matt's repo nests skills under `skills/<category>/<name>/` but OpenCode expects them flat at `~/.config/opencode/skills/<name>/`. The script above flattens that for you.
 
 ## Installation
 
@@ -34,6 +57,16 @@ curl -o ~/.config/opencode/agents/pocock-worker.md https://raw.githubusercontent
 
 Or clone this repo and symlink the files into `~/.config/opencode/agents/`.
 
+## Per-repo setup
+
+Many of Matt's engineering skills now read per-repo configuration that's seeded by `setup-matt-pocock-skills`. The first time you use Pocock in a new repo, the orchestrator will detect that `docs/agents/issue-tracker.md` is missing and run that skill to scaffold:
+
+- **Issue tracker** — GitHub (via `gh`), GitLab (via `glab`), or local markdown under `.scratch/<feature>/`. Pocock will dispatch workers using whichever you choose.
+- **Triage label vocabulary** — five canonical roles (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) plus two categories (`bug`, `enhancement`), mapped to whatever label strings your tracker actually uses.
+- **Domain doc layout** — single-context (`CONTEXT.md` + `docs/adr/` at the root) or multi-context (`CONTEXT-MAP.md` pointing to per-context `CONTEXT.md` files, typical for monorepos).
+
+You don't need to run it pre-emptively — it's lazy. The orchestrator triggers it the first time a hard-dependency skill (`to-prd`, `to-issues`, `triage`) actually needs the config.
+
 ## Usage
 
 Start an OpenCode session with the orchestrator:
@@ -43,7 +76,54 @@ opencode
 > @pocock I want to build X
 ```
 
-The agent will load `grill-me` and interrogate the idea. When the idea survives grilling it moves through design → PRD → issue breakdown → dispatch. Workers run in parallel on separate git worktrees and open a PR each. See the [blog post](https://mdias.info/posts/cloning-matt-pocock-opencode/) for the full walkthrough, including the dependency-wave pattern used for parallel dispatch.
+The default flow for a new code feature:
+
+1. **`grill-with-docs`** interrogates the idea and writes domain terms to `CONTEXT.md` and load-bearing decisions to `docs/adr/` as you go.
+2. **`prototype`** (optional) — when a logic or UI question is faster to answer with throwaway code than with prose.
+3. **`to-prd`** synthesizes the conversation into a PRD and publishes it to your configured issue tracker. (It does **not** re-interview — that already happened in step 1.)
+4. **`to-issues`** breaks the PRD into independently-grabbable, vertically-sliced issues with `ready-for-agent` labels.
+5. **Dispatch** — the orchestrator creates one git worktree per ready issue and dispatches `pocock-worker` subagents in parallel, grouped into dependency waves.
+6. Each worker loads `tdd` (and `diagnose` if the bug fights back), red-green-refactors, pushes its branch, opens a PR/MR.
+
+Other entry points (bug reports, performance regressions, refactors, architecture reviews) are mapped in the orchestrator's `Entry Points` table — see [`agents/pocock.md`](./agents/pocock.md). See the [blog post](https://mdias.info/posts/cloning-matt-pocock-opencode/) for the original full walkthrough; the post-2026-05 flow differs in a few places (`grill-with-docs` instead of `grill-me` + `ubiquitous-language`, `to-prd`/`to-issues` instead of `write-a-prd`/`prd-to-issues`, `diagnose` for hard bugs, `triage` instead of `qa`/`triage-issue`/`github-triage`).
+
+## What's new
+
+If you set this up before May 2026, here's what changed in this update:
+
+**Renamed skills** (1-for-1 replacements; old names are no longer loaded by the orchestrator):
+
+| Old | New |
+| --- | --- |
+| `prd-to-issues` | `to-issues` (now accepts any plan/spec, not just PRDs) |
+| `write-a-prd` | `to-prd` (no longer interviews — synthesizes existing context) |
+| `github-triage` | `triage` (issue-tracker agnostic) |
+
+**Deprecated** (folded into other skills):
+
+| Old | Replacement |
+| --- | --- |
+| `triage-issue` | `triage` (one skill, three modes: incoming triage, reproduce, agent brief) |
+| `qa` | `triage` |
+| `design-an-interface` | `prototype` (empirical throwaway code, not theoretical sub-agent designs) |
+| `ubiquitous-language` | `grill-with-docs` (writes `CONTEXT.md` inline as terms get sharpened) |
+| `request-refactor-plan` | `grill-with-docs` → `to-prd` → `to-issues` (the regular pipeline) |
+
+**New skills** referenced by the orchestrator:
+
+- `diagnose` — 6-phase debugging discipline (build feedback loop → reproduce → hypothesise → instrument → fix+regression test → cleanup). Genuinely the strongest practical addition; Phase 1 ("build a feedback loop") is the actual skill.
+- `prototype` — throwaway code to answer a design question, in two branches: terminal app for state/logic, multi-variation UI for visual design.
+- `grill-with-docs` — grilling that writes `CONTEXT.md` and ADRs inline as decisions land.
+- `zoom-out` — tiny "give me a higher-level map of this code using the project's domain language" prompt.
+- `handoff` — long-session handoff document for a fresh agent to pick up.
+- `caveman` — token-saving compressed mode (~75% reduction in filler).
+- `setup-matt-pocock-skills` — per-repo scaffolder for issue tracker, triage labels, domain doc layout.
+
+**Paradigm shifts**:
+
+- `UBIQUITOUS_LANGUAGE.md` → `CONTEXT.md` (single-context) or `CONTEXT-MAP.md` + per-context `CONTEXT.md` (monorepos). The new format lives next to `docs/adr/` for Architecture Decision Records.
+- Issue-tracker abstraction — the orchestrator is no longer GitHub-only. Workers dispatch using `gh`, `glab`, or local-markdown writes depending on `docs/agents/issue-tracker.md`.
+- `to-prd` no longer interviews. Grilling is a separate, earlier phase.
 
 ## Customization
 
@@ -52,6 +132,7 @@ The agents are plain markdown. Open them, read them, and edit anything that does
 - **Context-triggered skills table** in `pocock.md` — the default triggers are Cloudflare-Workers-flavored (`wrangler.toml`, Durable Objects, `@xyflow/react`, Playwright). Swap in the signals that match your stack.
 - **Model choice** — both agents default to `anthropic/claude-opus-4-7`. Change the `model:` frontmatter to whatever you have configured.
 - **Permissions** — the worker denies `git push --force`, `git reset --hard`, and `git clean` by default. Loosen or tighten as needed.
+- **Worker skill allow-list** — the worker can load `tdd`, `diagnose`, `triage`, `grill-with-docs`, `prototype`, `zoom-out`, `to-issues`, `improve-codebase-architecture`, plus the contextual ones (`react-flow`, `playwright-skill`, Cloudflare suite, `portless`). Add or remove based on what you want workers to be able to invoke autonomously.
 
 ## Credits
 
