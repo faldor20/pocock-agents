@@ -92,15 +92,18 @@ This is where parallelism happens. Two modes:
 - Only dispatch issues that have **no unresolved dependencies** on other issues. If issue B depends on issue A, A must be completed and merged before B is dispatched.
 - Group issues into **waves** by dependency. Wave 1 = all issues with no dependencies. Wave 2 = issues that depend only on Wave 1. And so on.
 - Within each wave, dispatch all workers **in parallel** using multiple Task tool calls in a single message.
-- **Each worker MUST operate in its own git worktree.** Workers sharing a checkout will clobber each other's branch state via concurrent `git checkout`. This is non-negotiable for parallel dispatch. See "Parallel dispatch isolation" below.
+- **Each worker MUST operate in its own git worktree (or jj workspace).** Workers sharing a checkout will clobber each other's branch/bookmark state via concurrent `git checkout` / `jj edit`. This is non-negotiable for parallel dispatch. See "Parallel dispatch isolation" below.
 - Each Task call must include: the issue number, the **worktree path** (not the main project path), the branch name already created, and any context the worker needs.
 - After all workers in a wave return, review their summaries. If any failed or have follow-up notes, handle those before dispatching the next wave.
 - After a worker returns with a merged or ready-to-merge PR, clean up its worktree.
+
+**Detect the VCS first.** Check `<project-path>/.jj/` — if it exists, the repo uses **Jujutsu** and you MUST use the `jj` block below, not the git one. In a colocated jj+git repo, git *mutation* commands (`git worktree add`, `git branch`, `git checkout`, `git commit`) corrupt jj's history and can cause irreversible file loss. jj's per-worker isolation primitive is the **workspace** (the equivalent of a git worktree); branches are **bookmarks**.
 
 **Parallel dispatch isolation (MANDATORY before dispatching):**
 
 For each issue `N` with slug `<slug>`, BEFORE calling `Task(subagent_type="pocock-worker", ...)`, run:
 
+_Git:_
 ```bash
 # Choose a stable worktree root outside the project directory
 WT_ROOT="/tmp/pocock-workers/<repo-name>"
@@ -117,34 +120,66 @@ git -C <project-path> fetch origin main
 git -C <project-path> worktree add -b issue/N-<slug> "$WT_ROOT/issue-N" origin/main
 ```
 
-Then dispatch the worker, passing the worktree path (`$WT_ROOT/issue-N`) as `Project`. The worker will operate entirely inside that path and never touch the main checkout.
+_Jujutsu (`.jj/` present):_
+```bash
+# Choose a stable workspace root outside the project directory
+WT_ROOT="/tmp/pocock-workers/<repo-name>"
+mkdir -p "$WT_ROOT"
+
+# Remove stale workspace from previous runs (if any)
+jj -R <project-path> workspace forget issue-N 2>/dev/null || true
+rm -rf "$WT_ROOT/issue-N"
+jj -R <project-path> bookmark delete issue/N-<slug> 2>/dev/null || true
+
+# Fetch latest main
+jj -R <project-path> git fetch
+
+# Create the workspace with a fresh change off main@origin, and a bookmark to push later
+jj -R <project-path> workspace add --name issue-N "$WT_ROOT/issue-N" --revision 'main@origin'
+jj -R "$WT_ROOT/issue-N" bookmark create issue/N-<slug> -r @
+```
+
+Then dispatch the worker, passing the worktree/workspace path (`$WT_ROOT/issue-N`) as `Project`. The worker will operate entirely inside that path and never touch the main checkout. Tell the worker which VCS the workspace uses so it picks the right command set.
 
 **After the worker returns** (successfully or not), clean up:
 
+_Git:_
 ```bash
 git -C <project-path> worktree remove --force "$WT_ROOT/issue-N"
 # The branch itself is now on origin (pushed by worker) and can remain locally for reference
+```
+
+_Jujutsu:_
+```bash
+jj -R <project-path> workspace forget issue-N
+rm -rf "$WT_ROOT/issue-N"
+# The bookmark is now on origin (pushed by worker) and can remain locally for reference
 ```
 
 If the worker failed and you want to keep the state for debugging, skip the cleanup and inspect `$WT_ROOT/issue-N` directly.
 
 **Dispatch template:**
 ```
-# Step A: create worktree
+# Step A: create worktree (git) ...
 Bash("git -C /path/to/project worktree add -b issue/42-deletion-persistence /tmp/pocock-workers/studio/issue-42 origin/main")
+# ... or workspace (jj)
+Bash("jj -R /path/to/project workspace add --name issue-42 /tmp/pocock-workers/studio/issue-42 --revision main@origin && jj -R /tmp/pocock-workers/studio/issue-42 bookmark create issue/42-deletion-persistence -r @")
 
-# Step B: dispatch worker, pointing at the worktree (not the main project path)
+# Step B: dispatch worker, pointing at the worktree/workspace (not the main project path)
 Task(subagent_type="pocock-worker", prompt="
-  Project: /tmp/pocock-workers/studio/issue-42    ← worktree path, pre-created branch
+  Project: /tmp/pocock-workers/studio/issue-42    ← worktree/workspace path, pre-created branch/bookmark
   Branch: issue/42-deletion-persistence            ← already checked out; do NOT recreate
+  VCS: jj                                          ← which command set to use (git | jj)
   Issue: #42 — Fix deletion persistence in Durable Object
   Context: The Studio editor uses a Durable Object (src/studio-do.ts) for state.
   The test framework is vitest (already configured).
   Key files: src/studio-do.ts, src/components/studio/api.ts, src/worker.ts
 ")
 
-# Step C: after worker returns successfully
+# Step C: after worker returns successfully (git) ...
 Bash("git -C /path/to/project worktree remove --force /tmp/pocock-workers/studio/issue-42")
+# ... or (jj)
+Bash("jj -R /path/to/project workspace forget issue-42 && rm -rf /tmp/pocock-workers/studio/issue-42")
 ```
 
 For a wave of N workers, Step A and Step C each batch into a single Bash call with `&&` or a for-loop; Step B uses N parallel Task calls in one message.
@@ -269,7 +304,7 @@ If the user's project still uses the older `UBIQUITOUS_LANGUAGE.md` convention, 
 
 9. **Review worker output.** When workers return, read their summaries. Check for failures, conflicts, or follow-up items before dispatching the next wave or declaring the phase complete.
 
-10. **Parallel workers require worktree isolation.** Before dispatching two or more workers in the same message, create one `git worktree` per worker via the setup block in Phase 4. Sharing a checkout between parallel workers WILL cause branch state to be clobbered by concurrent `git checkout` calls — this has happened in production runs. No exceptions, even for "quick" fixes.
+10. **Parallel workers require worktree isolation.** Before dispatching two or more workers in the same message, create one isolated checkout per worker via the setup block in Phase 4 — a `git worktree` for git repos, a `jj workspace` for Jujutsu repos (detect via `.jj/`). Sharing a single checkout between parallel workers WILL cause branch/bookmark state to be clobbered by concurrent `git checkout` / `jj edit` calls — this has happened in production runs. No exceptions, even for "quick" fixes. Never use git mutation commands in a jj repo.
 
 11. **`to-prd` does not interview.** It synthesizes existing context. If the conversation hasn't been through `grill-with-docs` (or equivalent), back up and grill first — don't ask `to-prd` to interview, that's not what it does.
 

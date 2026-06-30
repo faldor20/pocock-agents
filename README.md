@@ -1,6 +1,6 @@
 # pocock-agents
 
-A pair of [OpenCode](https://opencode.ai/) agents that turn [Matt Pocock](https://www.mattpocock.com/)'s skill-driven development workflow into something you can run end-to-end: grill an idea (and harden the domain glossary as you go), synthesize a PRD, break it into issues, and dispatch parallel workers that each execute one issue on an isolated git worktree using TDD.
+A pair of [OpenCode](https://opencode.ai/) agents that turn [Matt Pocock](https://www.mattpocock.com/)'s skill-driven development workflow into something you can run end-to-end: grill an idea (and harden the domain glossary as you go), synthesize a PRD, break it into issues, and dispatch parallel workers that each execute one issue on an isolated git worktree (or **Jujutsu workspace** — the agents detect `.jj/` and use `jj` instead) using TDD.
 
 Blog post with the full rationale and walkthrough: **[How I cloned Matt Pocock into OpenCode Agents](https://mdias.info/posts/cloning-matt-pocock-opencode/)**.
 
@@ -12,8 +12,8 @@ Blog post with the full rationale and walkthrough: **[How I cloned Matt Pocock i
 
 | File | Role |
 | --- | --- |
-| [`agents/pocock.md`](./agents/pocock.md) | **Orchestrator.** Loads Matt's skills on-demand through a phased workflow (`grill-with-docs` → `prototype` → `to-prd` → `to-issues` → dispatch), manages git worktrees, and coordinates parallel workers. |
-| [`agents/pocock-worker.md`](./agents/pocock-worker.md) | **Subagent.** Takes a single issue and a pre-created worktree, loads `tdd` (and `diagnosing-bugs` when bugs fight back), follows red-green-refactor, pushes a branch, and opens a PR/MR. |
+| [`agents/pocock.md`](./agents/pocock.md) | **Orchestrator.** Loads Matt's skills on-demand through a phased workflow (`grill-with-docs` → `prototype` → `to-prd` → `to-issues` → dispatch), manages git worktrees / jj workspaces, and coordinates parallel workers. |
+| [`agents/pocock-worker.md`](./agents/pocock-worker.md) | **Subagent.** Takes a single issue and a pre-created worktree/workspace, loads `tdd` (and `diagnosing-bugs` when bugs fight back), follows red-green-refactor, pushes a branch/bookmark, and opens a PR/MR. |
 
 ## Prerequisites
 
@@ -84,7 +84,7 @@ The default flow for a new code feature:
 2. **`prototype`** (optional) — when a logic or UI question is faster to answer with throwaway code than with prose.
 3. **`to-prd`** synthesizes the conversation into a PRD and publishes it to your configured issue tracker. (It does **not** re-interview — that already happened in step 1.)
 4. **`to-issues`** breaks the PRD into independently-grabbable, vertically-sliced issues with `ready-for-agent` labels.
-5. **Dispatch** — the orchestrator creates one git worktree per ready issue and dispatches `pocock-worker` subagents in parallel, grouped into dependency waves.
+5. **Dispatch** — the orchestrator creates one isolated checkout per ready issue (a `git worktree`, or a `jj workspace` for Jujutsu repos — detected via `.jj/`) and dispatches `pocock-worker` subagents in parallel, grouped into dependency waves. In a colocated jj repo the agents use `jj` exclusively, since git mutation commands would corrupt jj history.
 6. Each worker loads `tdd` (and `diagnosing-bugs` if the bug fights back), red-green-refactors, pushes its branch, opens a PR/MR.
 
 Other entry points (bug reports, performance regressions, refactors, architecture reviews) are mapped in the orchestrator's `Entry Points` table — see [`agents/pocock.md`](./agents/pocock.md). See the [blog post](https://mdias.info/posts/cloning-matt-pocock-opencode/) for the original full walkthrough; the post-2026-05 flow differs in a few places (`grill-with-docs` instead of `grill-me` + `ubiquitous-language`, `to-prd`/`to-issues` instead of `write-a-prd`/`prd-to-issues`, `diagnosing-bugs` for hard bugs, `triage` instead of `qa`/`triage-issue`/`github-triage`).
@@ -147,12 +147,12 @@ The agents are plain markdown. Open them, read them, and edit anything that does
 
 - **Context-triggered skills table** in `pocock.md` — the default triggers are Cloudflare-Workers-flavored (`wrangler.toml`, Durable Objects, `@xyflow/react`, Playwright). Swap in the signals that match your stack.
 - **Model choice** — both agents default to `anthropic/claude-opus-4-7`. Change the `model:` frontmatter to whatever you have configured.
-- **Permissions** — the worker denies `git push --force`, `git reset --hard`, and `git clean` by default. Loosen or tighten as needed.
+- **Permissions** — the worker denies `git push --force`, `git reset --hard`, and `git clean` by default, plus the jj equivalents (`jj op restore`, `jj op abandon`, `jj git push --force`). Loosen or tighten as needed.
 - **Worker skill allow-list** — the worker can load `tdd`, `diagnosing-bugs`, `implement`, `review`, `resolving-merge-conflicts`, `triage`, `grill-with-docs`, `domain-modeling`, `prototype`, `codebase-design`, `to-issues`, `improve-codebase-architecture`, plus the contextual ones (`react-flow`, `playwright-skill`, Cloudflare suite, `portless`). Add or remove based on what you want workers to be able to invoke autonomously.
 
 ## Credits
 
-All the hard work is in [Matt Pocock's skills](https://github.com/mattpocock/skills). These agents just compose them into an orchestrator/worker pattern with git worktree isolation.
+All the hard work is in [Matt Pocock's skills](https://github.com/mattpocock/skills). These agents just compose them into an orchestrator/worker pattern with git worktree (or jj workspace) isolation.
 
 ## License
 
