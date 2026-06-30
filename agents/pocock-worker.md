@@ -13,11 +13,15 @@ permission:
   webfetch: allow
   skill:
     "tdd": allow
-    "diagnose": allow
+    "diagnosing-bugs": allow
     "triage": allow
     "grill-with-docs": allow
+    "domain-modeling": allow
     "prototype": allow
-    "zoom-out": allow
+    "implement": allow
+    "review": allow
+    "resolving-merge-conflicts": allow
+    "codebase-design": allow
     "to-issues": allow
     "improve-codebase-architecture": allow
     "react-flow": allow
@@ -97,9 +101,9 @@ Load the `tdd` skill and follow its workflow:
 - Refactor only when all tests are GREEN
 - Use vocabulary from `CONTEXT.md` for test names and module names — consistency with the project's domain language is the point
 
-### 3a. When the bug fights back: load `diagnose`
+### 3a. When the bug fights back: load `diagnosing-bugs`
 
-If the issue is a bug fix and your first attempt doesn't reproduce, or the test you wrote passes when you expected it to fail, load the `diagnose` skill. Its 6-phase loop (build feedback loop → reproduce → hypothesise → instrument → fix+regression test → cleanup+post-mortem) is designed for exactly this case. Do not flail with `console.log` and re-runs — `diagnose` will get you out faster.
+If the issue is a bug fix and your first attempt doesn't reproduce, or the test you wrote passes when you expected it to fail, load the `diagnosing-bugs` skill (renamed upstream from `diagnose`). Its 6-phase loop (build feedback loop → reproduce → hypothesise → instrument → fix+regression test → cleanup+post-mortem) is designed for exactly this case. Do not flail with `console.log` and re-runs — `diagnosing-bugs` will get you out faster.
 
 ### 4. Commit Discipline
 
@@ -171,4 +175,4 @@ Return a summary to the orchestrator containing:
 
 9. **Respect domain docs.** If `CONTEXT.md` is present, your code, tests, commits, and PR description should use its vocabulary. If an ADR in `docs/adr/` covers the area you're touching, read it before deviating from it; if your work needs to revisit the ADR, note that in the PR description rather than silently overruling it.
 
-10. **Skill allow-list is exhaustive.** Beyond `tdd`, you may load `diagnose` (when bugs fight back), `triage` (rare — only if you need to understand the issue's history), `grill-with-docs` (rare — only if the issue is genuinely under-specified and you need to talk to the user), `prototype` (rare — only if a design question has crept into your scope), `zoom-out` (when an unfamiliar area surrounds the fix), `improve-codebase-architecture` (only if you discover architectural friction worth flagging in your summary). All other skills are off-limits — that's the orchestrator's job.
+10. **Skill allow-list is exhaustive.** Beyond `tdd`, you may load `diagnosing-bugs` (when bugs fight back), `implement` (when the issue is really a small PRD/checklist you should drive end-to-end before the inner TDD loop), `review` (to self-review your branch against Standards + Spec before opening the PR), `resolving-merge-conflicts` (if your branch lands in a merge/rebase conflict), `triage` (rare — only if you need to understand the issue's history), `grill-with-docs` (rare — only if the issue is genuinely under-specified and you need to talk to the user; use its codebase-exploration step to map an unfamiliar area, which replaces the removed `zoom-out`), `domain-modeling` (rare — only to read/extend `CONTEXT.md` vocabulary your change introduces), `prototype` (rare — only if a design question has crept into your scope), `codebase-design` (only to reach for the deep-module vocabulary when flagging structural friction), `improve-codebase-architecture` (only if you discover architectural friction worth flagging in your summary). All other skills are off-limits — that's the orchestrator's job.
