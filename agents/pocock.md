@@ -27,21 +27,13 @@ This file tracks `mattpocock/skills` ([github.com/mattpocock/skills](https://git
 
 **Run this before anything else, on every session.**
 
-1. **Load `task-observer`.** Use the `skill` tool with `name: task-observer` as the very first action of the session. This is the meta-skill ("One Skill to Rule Them All") that monitors your work for skill creation and improvement opportunities. It runs silently in the background across all subsequent phases — you do not surface observations during phase work, only at end of session or when explicitly asked.
-
-2. **Run the skill's Session Start Protocol.** Once loaded, follow its protocol: check for the observation log at `<cwd>/skill-observations/log.md`, the cross-cutting principles file, and the weekly-review timestamp. Create them if they don't exist. If a weekly review is due (>7 days since last), inform the user and run it before continuing.
-
-3. **Check per-repo skill setup (only if the task involves code work).** Matt's engineering skills depend on per-repo configuration — issue tracker, triage label vocabulary, and domain doc layout — written by `setup-matt-pocock-skills` to `docs/agents/*.md` and an `## Agent skills` block in `AGENTS.md`/`CLAUDE.md`. Detect whether this exists:
+1. **Check per-repo skill setup (only if the task involves code work).** Matt's engineering skills depend on per-repo configuration — issue tracker, triage label vocabulary, and domain doc layout — written by `setup-matt-pocock-skills` to `docs/agents/*.md` and an `## Agent skills` block in `AGENTS.md`/`CLAUDE.md`. Detect whether this exists:
    - Check for `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, `docs/agents/domain.md`.
    - Check for an `## Agent skills` heading in `AGENTS.md` or `CLAUDE.md`.
    - If you are about to use a **hard-dependency skill** (`to-prd`, `to-issues`, `triage`) and any of the above is missing, load `setup-matt-pocock-skills` and run it before proceeding. Don't run it pre-emptively — wait until a phase actually needs it.
    - **Soft-dependency skills** (`diagnosing-bugs`, `tdd`, `improve-codebase-architecture`, `codebase-design`, `grill-with-docs`) work without setup; they just produce sharper output when `CONTEXT.md` and `docs/adr/` exist.
 
-4. **Then proceed to the context scan and phase workflow below.**
-
-**Important:** task-observer is the ONLY exception to the "one skill at a time" rule beyond the context-triggered skills. It is always loaded, it does not interfere with phase skills, and it does not get unloaded when phase skills load. Treat it as ambient.
-
-**At end of session** (when the user wraps up, archives, or says goodbye), surface a summary of observations logged during the session. Use the format from the skill's Surfacing Protocol: title, skill, one-sentence summary, type. Ask which (if any) the user wants to action now versus defer to the weekly review.
+2. **Then proceed to the context scan and phase workflow below.**
 
 ## The Workflow
 
@@ -261,7 +253,7 @@ If the user's project still uses the older `UBIQUITOUS_LANGUAGE.md` convention, 
 
 1. **Always start with grilling for new code features.** If the user says "build X", do not jump to coding. Load `grill-with-docs` (engineering) or `grill-me` (non-code) and interrogate the idea first. The only exception is if the user explicitly says they have already been grilled, hands you a completed PRD, or is reporting bugs/perf issues (see entry points table).
 
-2. **One phase-workflow skill at a time, with three exceptions.** Load a skill, complete its workflow, then transition to the next phase. Do not load multiple phase-workflow skills simultaneously. The exceptions are: (a) `task-observer`, which is always loaded as ambient observation per Phase 0 and never gets unloaded; (b) context-triggered knowledge skills (see "Context-Triggered Skills" above) which can be loaded together as a one-time pass at session start; (c) dispatching multiple workers — that is parallel by design.
+2. **One phase-workflow skill at a time, with two exceptions.** Load a skill, complete its workflow, then transition to the next phase. Do not load multiple phase-workflow skills simultaneously. The exceptions are: (a) context-triggered knowledge skills (see "Context-Triggered Skills" above) which can be loaded together as a one-time pass at session start; (b) dispatching multiple workers — that is parallel by design.
 
 3. **Announce phase transitions.** When moving between phases, tell the user what phase you are entering and why. For example: *"The idea has survived grilling and `CONTEXT.md` now has the new `Materialization` term. Moving to Phase 2 — running `prototype` to sanity-check the state machine before writing the PRD."*
 
